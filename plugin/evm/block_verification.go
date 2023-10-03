@@ -42,8 +42,8 @@ func (v blockValidator) SyntacticVerify(b *Block, rules params.Rules) error {
 	if ethHeader.Number == nil || !ethHeader.Number.IsUint64() {
 		return errInvalidBlock
 	}
-	if ethHeader.Difficulty == nil || !ethHeader.Difficulty.IsUint64() ||
-		ethHeader.Difficulty.Uint64() != 1 {
+	// TR: removed a comparison that expected difficulty to be 1.
+	if ethHeader.Difficulty == nil || !ethHeader.Difficulty.IsUint64() {
 		return fmt.Errorf("invalid difficulty: %d", ethHeader.Difficulty)
 	}
 	if ethHeader.Nonce.Uint64() != 0 {
