@@ -13,7 +13,6 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/ava-labs/avalanchego/ids"
-	"github.com/ava-labs/avalanchego/snow/validators"
 	"github.com/ava-labs/avalanchego/utils/crypto/bls"
 	avalancheWarp "github.com/ava-labs/avalanchego/vms/platformvm/warp"
 )
@@ -31,9 +30,7 @@ func newValidator(t testing.TB, weight uint64) (*bls.SecretKey, *avalancheWarp.V
 }
 
 func TestAggregateSignatures(t *testing.T) {
-	subnetID := ids.GenerateTestID()
 	errTest := errors.New("test error")
-	pChainHeight := uint64(1337)
 	unsignedMsg := &avalancheWarp.UnsignedMessage{
 		NetworkID:     1338,
 		SourceChainID: ids.ID{'y', 'e', 'e', 't'},
@@ -57,145 +54,92 @@ func TestAggregateSignatures(t *testing.T) {
 	nonVdrSk, err := bls.NewSecretKey()
 	require.NoError(t, err)
 	nonVdrSig := bls.Sign(nonVdrSk, unsignedMsg.Bytes())
-	vdrSet := map[ids.NodeID]*validators.GetValidatorOutput{
-		nodeID1: {
-			NodeID:    nodeID1,
+	vdrs := []*avalancheWarp.Validator{
+		{
 			PublicKey: vdr1.PublicKey,
+			NodeIDs:   []ids.NodeID{nodeID1},
 			Weight:    vdr1.Weight,
 		},
-		nodeID2: {
-			NodeID:    nodeID2,
+		{
 			PublicKey: vdr2.PublicKey,
+			NodeIDs:   []ids.NodeID{nodeID2},
 			Weight:    vdr2.Weight,
 		},
-		nodeID3: {
-			NodeID:    nodeID3,
+		{
 			PublicKey: vdr3.PublicKey,
+			NodeIDs:   []ids.NodeID{nodeID3},
 			Weight:    vdr3.Weight,
 		},
 	}
 
 	type test struct {
-		name            string
-		contextFunc     func() context.Context
-		aggregatorFunc  func(*gomock.Controller) *Aggregator
-		unsignedMsg     *avalancheWarp.UnsignedMessage
-		quorumNum       uint64
-		expectedSigners []*avalancheWarp.Validator
-		expectedErr     error
+		name                  string
+		contextWithCancelFunc func() (context.Context, context.CancelFunc)
+		aggregatorFunc        func(*gomock.Controller, context.CancelFunc) *Aggregator
+		unsignedMsg           *avalancheWarp.UnsignedMessage
+		quorumNum             uint64
+		expectedSigners       []*avalancheWarp.Validator
+		expectedErr           error
 	}
 
 	tests := []test{
 		{
-			name:        "can't get height",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(uint64(0), errTest)
-				return New(subnetID, state, nil)
+			name: "0/3 validators reply with signature",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
 			},
-			unsignedMsg: nil,
-			quorumNum:   0,
-			expectedErr: errTest,
-		},
-		{
-			name:        "can't get validator set",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errTest)
-				return New(subnetID, state, nil)
-			},
-			unsignedMsg: nil,
-			expectedErr: errTest,
-		},
-		{
-			name:        "no validators exist",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
-				return New(subnetID, state, nil)
-			},
-			unsignedMsg: nil,
-			quorumNum:   0,
-			expectedErr: errNoValidators,
-		},
-		{
-			name:        "0/3 validators reply with signature",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errTest).AnyTimes()
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errTest).Times(len(vdrs))
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg: unsignedMsg,
 			quorumNum:   1,
 			expectedErr: avalancheWarp.ErrInsufficientWeight,
 		},
 		{
-			name:        "1/3 validators reply with signature; insufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "1/3 validators reply with signature; insufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nil, errTest)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nil, errTest)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nil, errTest).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nil, errTest).Times(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg: unsignedMsg,
 			quorumNum:   35, // Require >1/3 of weight
 			expectedErr: avalancheWarp.ErrInsufficientWeight,
 		},
 		{
-			name:        "2/3 validators reply with signature; insufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "2/3 validators reply with signature; insufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nil, errTest)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nil, errTest).Times(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg: unsignedMsg,
 			quorumNum:   69, // Require >2/3 of weight
 			expectedErr: avalancheWarp.ErrInsufficientWeight,
 		},
 		{
-			name:        "2/3 validators reply with signature; sufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "2/3 validators reply with signature; sufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nil, errTest)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nil, errTest).MaxTimes(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg:     unsignedMsg,
 			quorumNum:       65, // Require <2/3 of weight
@@ -203,20 +147,16 @@ func TestAggregateSignatures(t *testing.T) {
 			expectedErr:     nil,
 		},
 		{
-			name:        "3/3 validators reply with signature; sufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "3/3 validators reply with signature; sufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil).MaxTimes(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil).MaxTimes(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil).MaxTimes(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg:     unsignedMsg,
 			quorumNum:       100, // Require all weight
@@ -224,20 +164,16 @@ func TestAggregateSignatures(t *testing.T) {
 			expectedErr:     nil,
 		},
 		{
-			name:        "3/3 validators reply with signature; 1 invalid signature; sufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "3/3 validators reply with signature; 1 invalid signature; sufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil).MaxTimes(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil).Times(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg:     unsignedMsg,
 			quorumNum:       64,
@@ -245,60 +181,48 @@ func TestAggregateSignatures(t *testing.T) {
 			expectedErr:     nil,
 		},
 		{
-			name:        "3/3 validators reply with signature; 3 invalid signatures; insufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "3/3 validators reply with signature; 3 invalid signatures; insufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nonVdrSig, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nonVdrSig, nil)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nonVdrSig, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(nonVdrSig, nil).Times(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg: unsignedMsg,
 			quorumNum:   1,
 			expectedErr: avalancheWarp.ErrInsufficientWeight,
 		},
 		{
-			name:        "3/3 validators reply with signature; 2 invalid signatures; insufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "3/3 validators reply with signature; 2 invalid signatures; insufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nonVdrSig, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nonVdrSig, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil).Times(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg: unsignedMsg,
 			quorumNum:   40,
 			expectedErr: avalancheWarp.ErrInsufficientWeight,
 		},
 		{
-			name:        "2/3 validators reply with signature; 1 invalid signature; sufficient weight",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "1/3 validators reply with signature; 1 invalid signature; 1 error; sufficient weight",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nil, errTest)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil)
-				return New(subnetID, state, client)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(nonVdrSig, nil).MaxTimes(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(nil, errTest).MaxTimes(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).Return(sig3, nil).Times(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg:     unsignedMsg,
 			quorumNum:       30,
@@ -307,18 +231,12 @@ func TestAggregateSignatures(t *testing.T) {
 		},
 		{
 			name: "early termination of signature fetching on parent context cancelation",
-			contextFunc: func() context.Context {
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
-				return ctx
+				return ctx, cancel
 			},
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
 				// Assert that the context passed into each goroutine is canceled
 				// because the parent context is canceled.
 				client := NewMockSignatureGetter(ctrl)
@@ -329,7 +247,7 @@ func TestAggregateSignatures(t *testing.T) {
 						require.ErrorIs(t, err, context.Canceled)
 						return nil, err
 					},
-				)
+				).Times(1)
 				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).DoAndReturn(
 					func(ctx context.Context, _ ids.NodeID, _ *avalancheWarp.UnsignedMessage) (*bls.Signature, error) {
 						<-ctx.Done()
@@ -337,7 +255,7 @@ func TestAggregateSignatures(t *testing.T) {
 						require.ErrorIs(t, err, context.Canceled)
 						return nil, err
 					},
-				)
+				).MaxTimes(1)
 				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).DoAndReturn(
 					func(ctx context.Context, _ ids.NodeID, _ *avalancheWarp.UnsignedMessage) (*bls.Signature, error) {
 						<-ctx.Done()
@@ -345,8 +263,8 @@ func TestAggregateSignatures(t *testing.T) {
 						require.ErrorIs(t, err, context.Canceled)
 						return nil, err
 					},
-				)
-				return New(subnetID, state, client)
+				).MaxTimes(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg:     unsignedMsg,
 			quorumNum:       60, // Require 2/3 validators
@@ -354,18 +272,54 @@ func TestAggregateSignatures(t *testing.T) {
 			expectedErr:     avalancheWarp.ErrInsufficientWeight,
 		},
 		{
-			name:        "early termination of signature fetching on passing threshold",
-			contextFunc: context.Background,
-			aggregatorFunc: func(ctrl *gomock.Controller) *Aggregator {
-				state := validators.NewMockState(ctrl)
-				state.EXPECT().GetCurrentHeight(gomock.Any()).Return(pChainHeight, nil)
-				state.EXPECT().GetValidatorSet(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					vdrSet, nil,
-				)
-
+			name: "context cancels halfway through signature fetching",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				return ctx, cancel
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, cancel context.CancelFunc) *Aggregator {
 				client := NewMockSignatureGetter(ctrl)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil)
-				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).DoAndReturn(
+					func(ctx context.Context, _ ids.NodeID, _ *avalancheWarp.UnsignedMessage) (*bls.Signature, error) {
+						// cancel the context and return the signature
+						cancel()
+						return sig1, nil
+					},
+				).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).DoAndReturn(
+					func(ctx context.Context, _ ids.NodeID, _ *avalancheWarp.UnsignedMessage) (*bls.Signature, error) {
+						// Should not be able to grab another signature since context was cancelled in another go routine
+						<-ctx.Done()
+						err := ctx.Err()
+						require.ErrorIs(t, err, context.Canceled)
+						return nil, err
+					},
+				).MaxTimes(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).DoAndReturn(
+					func(ctx context.Context, _ ids.NodeID, _ *avalancheWarp.UnsignedMessage) (*bls.Signature, error) {
+						// Should not be able to grab another signature since context was cancelled in another go routine
+						<-ctx.Done()
+						err := ctx.Err()
+						require.ErrorIs(t, err, context.Canceled)
+						return nil, err
+					},
+				).MaxTimes(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
+			},
+			unsignedMsg:     unsignedMsg,
+			quorumNum:       33, // 1/3 Should have gotten one signature before cancellation
+			expectedSigners: []*avalancheWarp.Validator{vdr1},
+			expectedErr:     nil,
+		},
+		{
+			name: "early termination of signature fetching on passing threshold",
+			contextWithCancelFunc: func() (context.Context, context.CancelFunc) {
+				return context.Background(), nil
+			},
+			aggregatorFunc: func(ctrl *gomock.Controller, _ context.CancelFunc) *Aggregator {
+				client := NewMockSignatureGetter(ctrl)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID1, gomock.Any()).Return(sig1, nil).Times(1)
+				client.EXPECT().GetSignature(gomock.Any(), nodeID2, gomock.Any()).Return(sig2, nil).Times(1)
 				client.EXPECT().GetSignature(gomock.Any(), nodeID3, gomock.Any()).DoAndReturn(
 					// The aggregator will receive sig1 and sig2 which is sufficient weight,
 					// so the remaining outstanding goroutine should be cancelled.
@@ -375,8 +329,8 @@ func TestAggregateSignatures(t *testing.T) {
 						require.ErrorIs(t, err, context.Canceled)
 						return nil, err
 					},
-				)
-				return New(subnetID, state, client)
+				).MaxTimes(1)
+				return New(client, vdrs, vdrWeight*uint64(len(vdrs)))
 			},
 			unsignedMsg:     unsignedMsg,
 			quorumNum:       60, // Require 2/3 validators
@@ -390,9 +344,14 @@ func TestAggregateSignatures(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			require := require.New(t)
 
-			a := tt.aggregatorFunc(ctrl)
+			ctx, cancel := tt.contextWithCancelFunc()
+			// Guarantees that cancel is called preventing goroutine leak
+			if cancel != nil {
+				defer cancel()
+			}
+			a := tt.aggregatorFunc(ctrl, cancel)
 
-			res, err := a.AggregateSignatures(tt.contextFunc(), tt.unsignedMsg, tt.quorumNum)
+			res, err := a.AggregateSignatures(ctx, tt.unsignedMsg, tt.quorumNum)
 			require.ErrorIs(err, tt.expectedErr)
 			if err != nil {
 				return
