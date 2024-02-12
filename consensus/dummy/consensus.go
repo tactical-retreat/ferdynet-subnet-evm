@@ -199,7 +199,7 @@ func (self *DummyEngine) verifyHeader(chain consensus.ChainHeaderReader, header 
 		return errUnclesUnsupported
 	}
 	switch {
-	case config.IsDUpgrade(header.Time):
+	case config.IsDurango(header.Time):
 		if len(header.Extra) < params.DynamicFeeExtraDataSize {
 			return fmt.Errorf("expected extra-data field length >= %d, found %d", params.DynamicFeeExtraDataSize, len(header.Extra))
 		}

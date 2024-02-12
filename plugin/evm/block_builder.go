@@ -100,7 +100,7 @@ func (b *blockBuilder) handleGenerateBlock() {
 // needToBuild returns true if there are outstanding transactions to be issued
 // into a block.
 func (b *blockBuilder) needToBuild() bool {
-	size := b.txPool.PendingSize()
+	size := b.txPool.PendingSize(true)
 	return size > 0
 }
 
@@ -157,9 +157,9 @@ func (b *blockBuilder) awaitSubmittedTxs() {
 				b.signalTxsReady()
 
 				if b.gossiper != nil && len(ethTxsEvent.Txs) > 0 {
-					// [GossipTxs] will block unless [gossiper.txsToGossipChan] (an
+					// [GossipEthTxs] will block unless [gossiper.ethTxsToGossipChan] (an
 					// unbuffered channel) is listened on
-					if err := b.gossiper.GossipTxs(ethTxsEvent.Txs); err != nil {
+					if err := b.gossiper.GossipEthTxs(ethTxsEvent.Txs); err != nil {
 						log.Warn(
 							"failed to gossip new eth transactions",
 							"err", err,

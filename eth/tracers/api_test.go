@@ -47,13 +47,13 @@ import (
 	"github.com/ava-labs/subnet-evm/core/types"
 	"github.com/ava-labs/subnet-evm/core/vm"
 	"github.com/ava-labs/subnet-evm/eth/tracers/logger"
-	"github.com/ava-labs/subnet-evm/ethdb"
 	"github.com/ava-labs/subnet-evm/internal/ethapi"
 	"github.com/ava-labs/subnet-evm/params"
 	"github.com/ava-labs/subnet-evm/rpc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 var (
@@ -87,10 +87,11 @@ func newTestBackend(t *testing.T, n int, gspec *core.Genesis, generator func(i i
 
 	// Import the canonical chain
 	cacheConfig := &core.CacheConfig{
-		TrieCleanLimit: 256,
-		TrieDirtyLimit: 256,
-		SnapshotLimit:  128,
-		Pruning:        false, // Archive mode
+		TrieCleanLimit:            256,
+		TrieDirtyLimit:            256,
+		TriePrefetcherParallelism: 4,
+		SnapshotLimit:             128,
+		Pruning:                   false, // Archive mode
 	}
 	chain, err := core.NewBlockChain(backend.chaindb, cacheConfig, gspec, backend.engine, vm.Config{}, common.Hash{}, false)
 	if err != nil {
@@ -176,7 +177,7 @@ func (b *testBackend) StateAtBlock(ctx context.Context, block *types.Block, reex
 }
 
 func (b *testBackend) StateAtNextBlock(ctx context.Context, parent, nextBlock *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (*state.StateDB, StateReleaseFunc, error) {
-	statedb, release, err := b.StateAtBlock(ctx, parent, reexec, nil, true, false)
+	statedb, release, err := b.StateAtBlock(ctx, parent, reexec, base, readOnly, preferDisk)
 	if err != nil {
 		return nil, nil, err
 	}

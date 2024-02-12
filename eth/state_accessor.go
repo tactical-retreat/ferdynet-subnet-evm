@@ -68,6 +68,7 @@ var noopReleaser = tracers.StateReleaseFunc(func() {})
 //     provided, it would be preferable to start from a fresh state, if we have it
 //     on disk.
 func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (statedb *state.StateDB, release tracers.StateReleaseFunc, err error) {
+	reexec = 0 // Do not support re-executing historical blocks to grab state
 	var (
 		current  *types.Block
 		database state.Database
@@ -248,7 +249,7 @@ func (eth *Ethereum) stateAtTransaction(ctx context.Context, block *types.Block,
 // apply the upgrades to the [parent] state before returning it.
 func (eth *Ethereum) StateAtNextBlock(ctx context.Context, parent *types.Block, nextBlock *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (*state.StateDB, tracers.StateReleaseFunc, error) {
 	// Get state for [parent]
-	statedb, release, err := eth.StateAtBlock(ctx, parent, reexec, nil, true, false)
+	statedb, release, err := eth.StateAtBlock(ctx, parent, reexec, base, readOnly, preferDisk)
 	if err != nil {
 		return nil, nil, err
 	}

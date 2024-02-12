@@ -195,6 +195,13 @@ func (w *worker) commitNewWork(predicateContext *precompileconfig.PredicateConte
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new current environment: %w", err)
 	}
+	// Ensure we always stop prefetcher after block building is complete.
+	defer func() {
+		if env.state == nil {
+			return
+		}
+		env.state.StopPrefetcher()
+	}()
 	// Configure any upgrades that should go into effect during this block.
 	err = core.ApplyUpgrades(w.chainConfig, &parent.Time, types.NewBlockWithHeader(header), env.state)
 	if err != nil {
@@ -202,8 +209,8 @@ func (w *worker) commitNewWork(predicateContext *precompileconfig.PredicateConte
 		return nil, err
 	}
 
-	// Get the pending txs from TxPool
-	pending := w.eth.TxPool().Pending(true)
+	// Fill the block with all available pending transactions.
+	pending := w.eth.TxPool().PendingWithBaseFee(true, header.BaseFee)
 
 	// Split the pending transactions into locals and remotes
 	localTxs := make(map[common.Address]types.Transactions)
@@ -231,6 +238,7 @@ func (w *worker) createCurrentEnvironment(predicateContext *precompileconfig.Pre
 	if err != nil {
 		return nil, err
 	}
+	state.StartPrefetcher("miner", w.eth.BlockChain().CacheConfig().TriePrefetcherParallelism)
 	return &environment{
 		signer:           types.MakeSigner(w.chainConfig, header.Number, header.Time),
 		state:            state,
@@ -252,7 +260,7 @@ func (w *worker) commitTransaction(env *environment, tx *types.Transaction, coin
 		blockContext vm.BlockContext
 	)
 
-	if env.rules.IsDUpgrade {
+	if env.rules.IsDurango {
 		results, err := core.CheckPredicates(env.rules, env.predicateContext, tx)
 		if err != nil {
 			log.Debug("Transaction predicate failed verification in miner", "tx", tx.Hash(), "err", err)
@@ -337,7 +345,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 // commit runs any post-transaction state modifications, assembles the final block
 // and commits new work if consensus engine is running.
 func (w *worker) commit(env *environment) (*types.Block, error) {
-	if env.rules.IsDUpgrade {
+	if env.rules.IsDurango {
 		predicateResultsBytes, err := env.predicateResults.Bytes()
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal predicate results: %w", err)

@@ -309,9 +309,7 @@ func TestSuggestTipCapSmallTips(t *testing.T) {
 					Data:      []byte{},
 				})
 				tx, err = types.SignTx(tx, signer, key)
-				if err != nil {
-					t.Fatalf("failed to create tx: %s", err)
-				}
+				require.NoError(t, err, "failed to create tx")
 				b.AddTx(tx)
 			}
 		},
@@ -417,7 +415,7 @@ func TestSuggestGasPriceAfterFeeConfigUpdate(t *testing.T) {
 	// issue the block with tx that changes the fee
 	genesis := backend.chain.Genesis()
 	engine := backend.chain.Engine()
-	db := backend.chain.StateCache().DiskDB()
+	db := rawdb.NewDatabase(backend.chain.StateCache().DiskDB())
 	blocks, _, err := core.GenerateChain(&chainConfig, genesis, engine, db, 1, 0, func(i int, b *core.BlockGen) {
 		b.SetCoinbase(common.Address{1})
 

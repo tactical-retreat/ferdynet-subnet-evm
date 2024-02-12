@@ -245,7 +245,7 @@ func (api *FilterAPI) NewBlockFilter() rpc.ID {
 		headerSub *Subscription
 	)
 
-	if api.sys.backend.GetVMConfig().AllowUnfinalizedQueries {
+	if api.sys.backend.IsAllowUnfinalizedQueries() {
 		headerSub = api.events.SubscribeNewHeads(headers)
 	} else {
 		headerSub = api.events.SubscribeAcceptedHeads(headers)
@@ -291,7 +291,7 @@ func (api *FilterAPI) NewHeads(ctx context.Context) (*rpc.Subscription, error) {
 			headersSub event.Subscription
 		)
 
-		if api.sys.backend.GetVMConfig().AllowUnfinalizedQueries {
+		if api.sys.backend.IsAllowUnfinalizedQueries() {
 			headersSub = api.events.SubscribeNewHeads(headers)
 		} else {
 			headersSub = api.events.SubscribeAcceptedHeads(headers)
@@ -328,7 +328,7 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 		err         error
 	)
 
-	if api.sys.backend.GetVMConfig().AllowUnfinalizedQueries {
+	if api.sys.backend.IsAllowUnfinalizedQueries() {
 		logsSub, err = api.events.SubscribeLogs(interfaces.FilterQuery(crit), matchedLogs)
 		if err != nil {
 			return nil, err
@@ -383,7 +383,7 @@ func (api *FilterAPI) NewFilter(crit FilterCriteria) (rpc.ID, error) {
 		err     error
 	)
 
-	if api.sys.backend.GetVMConfig().AllowUnfinalizedQueries {
+	if api.sys.backend.IsAllowUnfinalizedQueries() {
 		logsSub, err = api.events.SubscribeLogs(interfaces.FilterQuery(crit), logs)
 		if err != nil {
 			return rpc.ID(""), err
@@ -439,11 +439,7 @@ func (api *FilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([]*type
 			end = crit.ToBlock.Int64()
 		}
 		// Construct the range filter
-		var err error
-		filter, err = api.sys.NewRangeFilter(begin, end, crit.Addresses, crit.Topics)
-		if err != nil {
-			return nil, err
-		}
+		filter = api.sys.NewRangeFilter(begin, end, crit.Addresses, crit.Topics)
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)
@@ -497,11 +493,7 @@ func (api *FilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*types.Lo
 			end = f.crit.ToBlock.Int64()
 		}
 		// Construct the range filter
-		var err error
-		filter, err = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics)
-		if err != nil {
-			return nil, err
-		}
+		filter = api.sys.NewRangeFilter(begin, end, f.crit.Addresses, f.crit.Topics)
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)

@@ -42,13 +42,12 @@ import (
 	"github.com/ava-labs/subnet-evm/core/bloombits"
 	"github.com/ava-labs/subnet-evm/core/rawdb"
 	"github.com/ava-labs/subnet-evm/core/types"
-	"github.com/ava-labs/subnet-evm/core/vm"
-	"github.com/ava-labs/subnet-evm/ethdb"
 	"github.com/ava-labs/subnet-evm/interfaces"
 	"github.com/ava-labs/subnet-evm/internal/ethapi"
 	"github.com/ava-labs/subnet-evm/params"
 	"github.com/ava-labs/subnet-evm/rpc"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/stretchr/testify/require"
 )
@@ -78,8 +77,8 @@ func (b *testBackend) ChainDb() ethdb.Database {
 	return b.db
 }
 
-func (b *testBackend) GetVMConfig() *vm.Config {
-	return &vm.Config{AllowUnfinalizedQueries: true}
+func (b *testBackend) IsAllowUnfinalizedQueries() bool {
+	return true
 }
 
 func (b *testBackend) GetMaxBlocksPerRequest() int64 {
@@ -96,13 +95,26 @@ func (b *testBackend) HeaderByNumber(ctx context.Context, blockNr rpc.BlockNumbe
 		num  uint64
 	)
 	switch blockNr {
-	case rpc.LatestBlockNumber, rpc.AcceptedBlockNumber:
+	case rpc.FinalizedBlockNumber:
+		var err error
+		hash, err = rawdb.ReadAcceptorTip(b.db)
+		if err != nil {
+			return nil, err
+		}
+		number := rawdb.ReadHeaderNumber(b.db, hash)
+		if number == nil {
+			return nil, nil
+		}
+		num = *number
+	case rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		hash = rawdb.ReadHeadBlockHash(b.db)
 		number := rawdb.ReadHeaderNumber(b.db, hash)
 		if number == nil {
 			return nil, nil
 		}
 		num = *number
+	case rpc.SafeBlockNumber:
+		return nil, errors.New("safe block not found")
 	default:
 		num = uint64(blockNr)
 		hash = rawdb.ReadCanonicalHash(b.db, num)

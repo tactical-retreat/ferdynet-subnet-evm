@@ -8,7 +8,6 @@ import (
 
 	"github.com/ava-labs/avalanchego/codec"
 	"github.com/ava-labs/avalanchego/ids"
-	"github.com/ava-labs/subnet-evm/ethdb"
 	"github.com/ava-labs/subnet-evm/metrics"
 	"github.com/ava-labs/subnet-evm/plugin/evm/message"
 	syncHandlers "github.com/ava-labs/subnet-evm/sync/handlers"
@@ -16,6 +15,7 @@ import (
 	"github.com/ava-labs/subnet-evm/trie"
 	"github.com/ava-labs/subnet-evm/warp"
 	warpHandlers "github.com/ava-labs/subnet-evm/warp/handlers"
+	"github.com/ethereum/go-ethereum/ethdb"
 )
 
 var _ message.RequestHandler = &networkHandler{}
@@ -44,7 +44,7 @@ func newNetworkHandler(
 	}
 }
 
-func (n networkHandler) HandleTrieLeafsRequest(ctx context.Context, nodeID ids.NodeID, requestID uint32, leafsRequest message.LeafsRequest) ([]byte, error) {
+func (n networkHandler) HandleStateTrieLeafsRequest(ctx context.Context, nodeID ids.NodeID, requestID uint32, leafsRequest message.LeafsRequest) ([]byte, error) {
 	return n.stateTrieLeafsRequestHandler.OnLeafsRequest(ctx, nodeID, requestID, leafsRequest)
 }
 

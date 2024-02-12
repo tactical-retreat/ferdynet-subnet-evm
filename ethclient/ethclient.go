@@ -38,6 +38,7 @@ import (
 	"github.com/ava-labs/subnet-evm/accounts/abi/bind"
 	"github.com/ava-labs/subnet-evm/core/types"
 	"github.com/ava-labs/subnet-evm/interfaces"
+	"github.com/ava-labs/subnet-evm/params"
 	"github.com/ava-labs/subnet-evm/rpc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -69,10 +70,12 @@ var (
 type Client interface {
 	Client() *rpc.Client
 	Close()
+	ChainConfig(context.Context) (*params.ChainConfigWithUpgradesJSON, error)
 	ChainID(context.Context) (*big.Int, error)
 	BlockByHash(context.Context, common.Hash) (*types.Block, error)
 	BlockByNumber(context.Context, *big.Int) (*types.Block, error)
 	BlockNumber(context.Context) (uint64, error)
+	BlockReceipts(context.Context, rpc.BlockNumberOrHash) ([]*types.Receipt, error)
 	HeaderByHash(context.Context, common.Hash) (*types.Header, error)
 	HeaderByNumber(context.Context, *big.Int) (*types.Header, error)
 	TransactionByHash(context.Context, common.Hash) (tx *types.Transaction, isPending bool, err error)
@@ -141,6 +144,16 @@ func (ec *client) Client() *rpc.Client {
 
 // Blockchain Access
 
+// ChainConfig retrieves the current chain config.
+func (ec *client) ChainConfig(ctx context.Context) (*params.ChainConfigWithUpgradesJSON, error) {
+	var result *params.ChainConfigWithUpgradesJSON
+	err := ec.c.CallContext(ctx, &result, "eth_getChainConfig")
+	if err != nil {
+		return nil, err
+	}
+	return result, err
+}
+
 // ChainID retrieves the current chain ID for transaction replay protection.
 func (ec *client) ChainID(ctx context.Context) (*big.Int, error) {
 	var result hexutil.Big
@@ -173,6 +186,16 @@ func (ec *client) BlockNumber(ctx context.Context) (uint64, error) {
 	var result hexutil.Uint64
 	err := ec.c.CallContext(ctx, &result, "eth_blockNumber")
 	return uint64(result), err
+}
+
+// BlockReceipts returns the receipts of a given block number or hash.
+func (ec *client) BlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) ([]*types.Receipt, error) {
+	var r []*types.Receipt
+	err := ec.c.CallContext(ctx, &r, "eth_getBlockReceipts", blockNrOrHash.String())
+	if err == nil && r == nil {
+		return nil, interfaces.NotFound
+	}
+	return r, err
 }
 
 type rpcBlock struct {
