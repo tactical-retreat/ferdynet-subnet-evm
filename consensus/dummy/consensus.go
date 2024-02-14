@@ -5,6 +5,7 @@ package dummy
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
@@ -274,8 +275,12 @@ func (self *DummyEngine) VerifyUncles(chain consensus.ChainReader, block *types.
 }
 
 func (self *DummyEngine) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
-	header.Difficulty = big.NewInt(1)
-	return nil
+	// TR: Previously this was hardcoded to 1, instead use a random value.
+	difficulty, err := randomUint64()
+	if err == nil {
+		header.Difficulty = difficulty
+	}
+	return err
 }
 
 func (self *DummyEngine) verifyBlockFee(
@@ -418,4 +423,17 @@ func (self *DummyEngine) CalcDifficulty(chain consensus.ChainHeaderReader, time 
 
 func (self *DummyEngine) Close() error {
 	return nil
+}
+
+// Generate a random uint64 that we can stick into the Difficulty field.
+func randomUint64() (*big.Int, error) {
+	buf := make([]byte, 8) // 8 bytes = 64 bits
+	_, err := rand.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	// Interpret buf as a big-endian number
+	num := new(big.Int).SetBytes(buf)
+	return num, nil
 }
