@@ -4,8 +4,7 @@ go 1.21
 
 require (
 	github.com/VictoriaMetrics/fastcache v1.10.0
-	github.com/ava-labs/avalanche-network-runner v1.7.4-rc.0
-	github.com/ava-labs/avalanchego v1.11.0-rc.2
+	github.com/ava-labs/avalanchego v1.11.1
 	github.com/cespare/cp v0.1.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deckarep/golang-set/v2 v2.1.0
@@ -55,7 +54,7 @@ require (
 	github.com/DataDog/zstd v1.5.2 // indirect
 	github.com/Microsoft/go-winio v0.5.2 // indirect
 	github.com/NYTimes/gziphandler v1.1.1 // indirect
-	github.com/ava-labs/coreth v0.12.11-rc.3.0.20240207021717-15431782181b // indirect
+	github.com/ava-labs/coreth v0.13.0-rc.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.3 // indirect
@@ -100,7 +99,6 @@ require (
 	github.com/mitchellh/pointerstructure v1.2.0 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/nbutton23/zxcvbn-go v0.0.0-20180912185939-ae427f1e4c1d // indirect
-	github.com/otiai10/copy v1.11.0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.5 // indirect
 	github.com/pires/go-proxyproto v0.6.2 // indirect
@@ -131,7 +129,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e // indirect
-	golang.org/x/mod v0.14.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/term v0.15.0 // indirect
 	golang.org/x/tools v0.16.0 // indirect
